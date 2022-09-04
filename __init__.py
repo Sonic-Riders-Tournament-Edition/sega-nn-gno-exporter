@@ -12,7 +12,7 @@ bl_info = {
 
 import bpy
 from bpy_extras.io_utils import ExportHelper
-from bpy.props import BoolProperty, StringProperty, EnumProperty
+from bpy.props import IntProperty, BoolProperty, StringProperty, EnumProperty
 from . import nn
 from . import nn_general as nnGeneral
 from . import nn_model as nnModel
@@ -24,6 +24,7 @@ export_types = (
 )
 
 rig_types = (
+    ("no_rig", "No Rig", "Doesn't contain a rig. All bone visibility values will default to 0. Use this in tandem with external bone data (which means the exported model may require manual editing)"),
     ("board_only", "Board", "Rig that only has a bone for the board"),
 
     ("board_sonic", "Sonic (Board)", "Sonic on a board rig"),
@@ -253,6 +254,20 @@ class GnoMaterialSettings(bpy.types.PropertyGroup):
         default = False
     )
 
+class GnoMeshSettings(bpy.types.PropertyGroup):
+    use_custom_bone_visibility: BoolProperty(
+        name = "Use custom bone visibility",
+        description = "Enables the use of custom bone visibility integers on this mesh",
+        default = False
+    )
+
+    bone_visibility: IntProperty(
+        name = "Custom bone visibility",
+        description = "Sets a custom bone visibility integer for a mesh",
+        default = 0,
+        min = 0
+    )
+
 class GnoTextureSettings(bpy.types.PropertyGroup):
     texture_property: EnumProperty(
         name = "",
@@ -323,7 +338,21 @@ class MeshProperties(bpy.types.Panel):
         return context.active_object.type == 'MESH'
 
     def draw(self, context):
-        self.layout.operator("vertex_groups.gno")
+        layout = self.layout
+        properties = context.active_object.data.gnoSettings
+
+        layout.operator("vertex_groups.gno")
+
+        row = layout.row()
+        row.alignment = "LEFT"
+        row.label(text="Use custom bone visibility")
+        row.prop(properties, "use_custom_bone_visibility", text="")
+
+        row = layout.row()
+        row.alignment = "LEFT"
+        row.label(text="Custom bone visibility")
+        row.prop(properties, "bone_visibility", text="")
+        row.enabled = properties.use_custom_bone_visibility
 
 def menu_export_func(self, context):
     self.layout.operator(ExportGNO.bl_idname, text="Sonic Riders GNO Model (.gno)")
@@ -336,6 +365,7 @@ classes = (
     GnoTextureSettings,
     GnoVertexGroups,
     MeshProperties,
+    GnoMeshSettings,
 )
 
 def register():
@@ -345,6 +375,7 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_export_func)
     bpy.types.Material.gnoSettings = bpy.props.PointerProperty(type=GnoMaterialSettings)
     bpy.types.ShaderNodeTexImage.gnoSettings = bpy.props.PointerProperty(type=GnoTextureSettings)
+    bpy.types.Mesh.gnoSettings = bpy.props.PointerProperty(type=GnoMeshSettings)
 
 def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_export_func)

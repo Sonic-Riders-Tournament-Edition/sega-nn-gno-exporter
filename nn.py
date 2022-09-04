@@ -134,14 +134,24 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
 
     def get_mesh_data(ob:bpy.types.Object, vertex_set, face_index, LUTkey, is_weighted = False):
         """Gets all the necessary data of a mesh"""
-        LUT = rigLUT.retrieve_bone_LUT(LUTkey)
+        
         bone_index, bone_name = nnModel.get_mesh_bone(ob)
         bone_group = nnModel.get_bone_group(ob, bone_name, is_weighted)
-        if bone_group not in LUT:
-            print("Index {} bone not found in LUT.".format(bone_group))
-            bone_visibility = 0x46 # default to visible always
+        
+        if ob.data.gnoSettings.use_custom_bone_visibility:
+            bone_visibility = ob.data.gnoSettings.bone_visibility
+
+        elif LUTkey != "no_rig":
+            LUT = rigLUT.retrieve_bone_LUT(LUTkey)
+            if bone_group not in LUT:
+                print("Index {} bone not found in LUT.".format(bone_group))
+                bone_visibility = 0x46 # default to visible always
+            else:
+                bone_visibility = LUT[bone_group]
+        
         else:
-            bone_visibility = LUT[bone_group]
+            bone_visibility = 0
+
         firstmat = nnModel.get_mesh_material(ob)
         mat_index = nnModel.get_material_index(materials, firstmat)
         bounds_position, bounds_scale = calculate_bounding_box(ob)
@@ -238,6 +248,11 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     global materials
     materials, texture_names = nnModel.get_all_materials()
     texture_count = len(texture_names)
+
+    print()
+    print("Texture list order:")
+    for i, tname in enumerate(texture_names):
+        print("{}. {}".format(i, tname))
 
     offset_to_texture_count_and_offsets = texture_count * 0x14 + 0x10
     header_size = calculate_NGTL_header_size(offset_to_texture_count_and_offsets, texture_names)
@@ -508,13 +523,12 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     output_file.write_int(0xC)
     output_file.write_int_NOF0(bone_offset, gno)
 
-    # subtracted 1 is to not count for the null bone group
     if gno.vertex_set_1_meshes:
-        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_1_meshes[0])-1 
+        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_1_meshes[0])
     elif gno.vertex_set_2_meshes:
-        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_2_meshes[0])-1
+        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_2_meshes[0])
     elif gno.vertex_set_3_meshes:
-        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_3_meshes[0])-1
+        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_3_meshes[0])
 
     output_file.write_int(bone_group_amount) 
 

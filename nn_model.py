@@ -869,7 +869,10 @@ def get_bone_group(ob, bone, is_weighted):
     if not arm:
         raise Exception("armature object not found")
 
-    all_bone_groups = [x.name for x in arm.pose.bone_groups[1:]]
+    if arm.pose.bone_groups[0].name == "Null_Bone_Group":
+        all_bone_groups = [x.name for x in arm.pose.bone_groups[1:]]
+    else:
+        all_bone_groups = [x.name for x in arm.pose.bone_groups]
     bone_group = arm.pose.bones[bone].bone_group
     if bone_group.name not in all_bone_groups:
         raise Exception("bone group not found")
@@ -886,7 +889,12 @@ def get_bone_group_amount(ob):
     if not arm:
         raise Exception("armature object not found")
 
-    return len(arm.pose.bone_groups)
+    if arm.pose.bone_groups[0].name == "Null_Bone_Group":
+        amount = len(arm.pose.bone_groups) - 1
+    else:
+        amount = len(arm.pose.bone_groups)
+
+    return amount
 
 def get_mesh_uvs_with_indices(me):
     """Get's all of the UV coordinates of a mesh with its indices for faces"""
