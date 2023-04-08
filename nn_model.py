@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 import struct
 import bpy
-import mathutils
+import mathutils, itertools
+import numpy as np
 import os
 
 @dataclass
@@ -274,13 +275,13 @@ class File:
         while self.tell() & 0x1F:
             self.fileobject.write(b'\x00')
 
-# this is not used
-default_bounds = Bounds((1.19209e-07, 0.45939, 0), 0.947298)
-
 def divide_chunks(l, n):
     # looping till length l
     for i in range(0, len(l), n): 
         yield l[i:i + n]
+
+def float_to_bam(f: float) -> int:
+    return int(round(f * (32767 / 180)))
 
 def write_materials(file:File, materials:list[Material], gno:GNO):
     """Formats and writes a list of materials to the file"""
@@ -777,28 +778,13 @@ def get_material_index(all_mats, material) -> int:
     return material_index
 
 def get_weight_painted_meshes():
-    """Checks all meshes for if they are weight painted, if so, it will format the data and return it"""
+    """Checks all meshes for if they are weight painted, if so, it will return the names of said meshes"""
     objects = bpy.context.scene.objects
     mesh_names = []
-    vert_weights = [] # these go in order of mesh names
-    vert_bones = []
 
     for mesh in objects:
         if not mesh.type == 'MESH':
             continue
-        
-        # ensure vertex groups are sorted
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.view_layer.objects.active = mesh
-        mesh.select_set(True)
-
-        bpy.ops.object.vertex_group_sort()
-
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.view_layer.objects.active = None
-        mesh.select_set(False)
-
-        myVertexGroups = {i: [ ] for i in range(len(mesh.data.vertices))}
         
         firstvert = mesh.data.vertices[0]
         if not firstvert.groups:
@@ -812,21 +798,48 @@ def get_weight_painted_meshes():
 
         mesh_names.append(mesh.name)
         
+    return mesh_names
+
+def get_weight_paints(armature, mesh_names):
+    """Gets all the vertex weights from a passed in list of mesh names"""
+    vert_weights = [] # these go in order of mesh names
+    vert_bones = []
+    success = True
+
+    bone_dict = get_bone_group_to_bone_dict(armature)
+    bone_dict = {v: k for k, v in bone_dict.items()} # invert dict, now it's bone: bone group
+    all_bones = [bone.name for bone in armature.data.bones]
+
+    for name in mesh_names:
+        mesh = bpy.context.scene.objects[name]
+        if not mesh.type == 'MESH':
+            continue
+        
+        myVertexGroups = [[ ] for _ in range(len(mesh.data.vertices))]
+
         for v in mesh.data.vertices:
             for g in v.groups:
                 if not len(myVertexGroups[v.index]):
                     myVertexGroups[v.index].append(g.weight)
-                myVertexGroups[v.index].append(g.group)
                 
-        
-        for groupIndex, groupVertices in myVertexGroups.items():
-            if len(groupVertices) < 3: # check for whether there is only one vertex group assigned to vertex
-                groupVertices.append(0) # append whichever bone group, let's use the first one
-                groupVertices[0] = 1.0 # make the vertex weigh 100%, this will make the dummy vertex group weight 0%
-            vert_weights.append(groupVertices[0])
-            vert_bones.append([groupVertices[1], groupVertices[2]])
+                bone_name = mesh.vertex_groups[g.group].name
+                bone_index = all_bones.index(bone_name)
+                myVertexGroups[v.index].append(bone_dict[bone_index])
 
-    return mesh_names, vert_weights, vert_bones  
+        try:
+            for groupVertices in myVertexGroups:
+                if len(groupVertices) < 3: # check for whether there is only one vertex group assigned to vertex
+                    groupVertices.append(0) # append whichever bone group, let's use the first one
+                    groupVertices[0] = 1.0 # make the vertex weigh 100%, this will make the dummy vertex group weight 0%
+
+                weight = groupVertices[0]
+                bone1, bone2 = groupVertices[1], groupVertices[2]
+                vert_weights.append(weight)
+                vert_bones.append([bone1, bone2])
+        except:
+            success = False
+
+    return success, vert_weights, vert_bones
 
 def get_mesh_bone(ob):
     """If mesh isn't weight painted, it should contain only one vertex group, which will be the bone the mesh will be assigned to"""
@@ -879,6 +892,20 @@ def get_bone_group(ob, bone, is_weighted):
 
     return all_bone_groups.index(bone_group.name)
 
+def get_bone_group_armature(arm, bone):
+    """Get the bone group a bone is related to. (Only used on rig serialization)"""
+
+    all_bone_groups = [x.name for x in arm.pose.bone_groups]
+    bone_group = arm.pose.bones[bone].bone_group
+    if bone_group.name not in all_bone_groups:
+        raise Exception("bone group not found")
+
+    bone_group_index = all_bone_groups.index(bone_group.name)
+    if bone_group_index == 0:
+        return -1
+    else:
+        return bone_group_index - 1
+
 def get_bone_group_amount(ob):
     """Gets the amount of bone groups of the armature that's related to the passed in mesh"""
     if ob is None or ob.type != 'MESH':
@@ -895,6 +922,202 @@ def get_bone_group_amount(ob):
         amount = len(arm.pose.bone_groups)
 
     return amount
+
+def get_bone_group_amount_armature(arm):
+    """Gets the amount of bone groups of the passed in armature"""
+    
+    if not arm:
+        raise Exception("armature object not found")
+
+    if arm.pose.bone_groups[0].name == "Null_Bone_Group":
+        amount = len(arm.pose.bone_groups) - 1
+    else:
+        amount = len(arm.pose.bone_groups)
+
+    return amount
+
+def get_bone_group_to_bone_dict(armature):
+    bone_dict = {}
+
+    all_bones = [bone.name for bone in armature.pose.bones]
+    if armature.pose.bone_groups[0].name == "Null_Bone_Group":
+        all_bone_groups = [x.name for x in armature.pose.bone_groups[1:]]
+    else:
+        all_bone_groups = [x.name for x in armature.pose.bone_groups]
+
+    for bone in armature.pose.bones:
+        try:
+            bone_group_index = all_bone_groups.index(bone.bone_group.name)
+        except:
+            # null bone group
+            bone_group_index = -1
+            
+        bone_dict[bone_group_index] = all_bones.index(bone.name)
+    
+    return bone_dict
+
+def get_bone_visibility_character(armature, bone_group_index):
+    ALWAYS_VISIBLE = 0x46
+    ALWAYS_VISIBLE_2 = 0x1C
+
+    if bone_group_index == -1:
+        # weight painted mesh
+        return ALWAYS_VISIBLE
+    
+    always_visible_bones = [3, 4, 5, 6, 7, 8, 10, 11, 12, 30, 31, 32, 40, 41, 42, 60, 61, 62, 63, 64, 65, 66, 67, 68]
+    always_visible_bones_2 = [9, 27]
+
+    bone_dict = get_bone_group_to_bone_dict(armature)
+
+    bone_index = bone_dict[bone_group_index]
+
+    if bone_index in always_visible_bones:
+        return ALWAYS_VISIBLE
+    elif bone_index in always_visible_bones_2:
+        return ALWAYS_VISIBLE_2
+    else:
+        return bone_index
+    
+def get_bone_visibility_general(armature, bone_group_index):
+    if bone_group_index == -1:
+        # weight painted mesh
+        return len(armature.data.bones) - 1
+    
+    bone_dict = get_bone_group_to_bone_dict(armature)
+
+    bone_index = bone_dict[bone_group_index]
+
+    return bone_index
+
+def serialize_rig(armature) -> bytes:
+    def calculate_meshlist_bounding_box_max_xyz(objects):
+        """Calculates the bounding box center, distance and max x, y, and z coordinates of a list of meshes"""
+        
+        # get the local coordinates of all object bounding box corners    
+        coords = np.vstack(
+            tuple(np.array(o.bound_box)
+                for o in  
+                    objects
+                    if o.type == "MESH"
+                    )
+                )
+                
+
+        # bottom front left (all the mins)
+        bfl = coords.min(axis=0)
+        # top back right
+        tbr = coords.max(axis=0)
+        G  = np.array((bfl, tbr)).T
+        # bound box coords ie the 8 combinations of bfl tbr.
+        bbc = [i for i in itertools.product(*G)]
+
+        local_bbox = sum((mathutils.Vector(b) for b in bbc), mathutils.Vector()) / 8
+        cx = local_bbox[0]
+        cy = local_bbox[1]
+        cz = local_bbox[2]
+
+        allobj = [o for o in objects if o.type == "MESH"]
+
+        distance = 0
+        max_x = allobj[0].data.vertices[0].co.x
+        max_y = allobj[0].data.vertices[0].co.y
+        max_z = allobj[0].data.vertices[0].co.z
+        for o in allobj:
+            for v in o.data.vertices:
+                tDist = mathutils.Vector((cx - v.co.x,  cy - v.co.y, cz - v.co.z)).length
+                if tDist > distance:
+                    distance = tDist
+                    
+                if v.co.x > max_x:
+                    max_x = v.co.x
+                    
+                if v.co.y > max_y:
+                    max_y = v.co.y
+                    
+                if v.co.z > max_z:
+                    max_z = v.co.z
+                    
+        return local_bbox, distance, max_x, max_y, max_z
+
+    bone_names = [bone.name for bone in armature.data.bones]
+    mesh_used_bones = [list() for _ in armature.data.bones]
+    mesh_list = [mesh for mesh in bpy.context.scene.objects if mesh.type == "MESH" and mesh.find_armature() == armature]
+
+    for mesh in mesh_list:
+        vgroups = [vg.name for vg in mesh.vertex_groups]
+        if len(vgroups) != 1:
+            continue
+        
+        index = bone_names.index(vgroups[0])
+        mesh_used_bones[index].append(mesh)
+
+    new_bone_data = bytes()
+        
+    for bone, meshes in zip(armature.data.bones, mesh_used_bones):
+        center = (0, 0, 0)
+        distance = 0
+        length = (0, 0, 0)
+
+        flags = 0x184
+        if meshes:
+            flags |= 0x200000
+
+        bone_group_index = get_bone_group_armature(armature, bone.name)
+        parent_index = bone_names.index(bone.parent.name) if bone.parent else -1
+        child_index = bone_names.index(bone.children[0].name) if bone.children else -1
+        sibling_index = -1
+        if bone.parent:
+            parent_children_names = [parent_children.name for parent_children in bone.parent.children]
+            next_sibling_index = parent_children_names.index(bone.name) + 1
+            if next_sibling_index < len(bone.parent.children):
+                sibling_bone_name = parent_children_names[next_sibling_index]
+                sibling_index = bone_names.index(sibling_bone_name)
+
+        matrix = bone.matrix_local.inverted()
+        translation, rotation, scale = bone.matrix_local.decompose()
+
+        if bone.parent:
+            parent_matrix = bone.parent.matrix_local.inverted() @ bone.matrix_local
+            translation, rotation, scale = parent_matrix.decompose()
+            
+        roteuler = rotation.to_euler("XZY")
+
+        rot_x = round(np.degrees(roteuler.x), 3)
+        rot_y = round(np.degrees(roteuler.y), 3)
+        rot_z = round(np.degrees(roteuler.z), 3)
+
+        # if bone has meshes assigned to it, calculate center, distance and length
+        if flags & 0x200000:
+            bbox_center, distance, max_x, max_y, max_z = calculate_meshlist_bounding_box_max_xyz(meshes)
+            center = (bbox_center[0] - bone.head_local[0], bbox_center[1] - bone.head_local[1], bbox_center[2] - bone.head_local[2])
+            length = (max_x - bbox_center[0], max_y - bbox_center[1], max_z - bbox_center[2])
+        
+        # serialize
+        new_bone_data += struct.pack(">I", flags)
+        new_bone_data += struct.pack(">hhhh", bone_group_index, parent_index, child_index, sibling_index)
+        for co in translation:
+            new_bone_data += struct.pack(">f", co)
+            
+        new_bone_data += struct.pack(">i", float_to_bam(rot_x))
+        new_bone_data += struct.pack(">i", float_to_bam(rot_y))
+        new_bone_data += struct.pack(">i", float_to_bam(rot_z))
+        
+        for co in scale:
+            new_bone_data += struct.pack(">f", co)
+            
+        for m in matrix[:3]:
+            for co in m:
+                new_bone_data += struct.pack(">f", co)
+                
+        for co in center:
+            new_bone_data += struct.pack(">f", co)
+            
+        new_bone_data += struct.pack(">f4x", distance)
+            
+        for co in length:
+            new_bone_data += struct.pack(">f", co)
+    
+    return new_bone_data
 
 def get_mesh_uvs_with_indices(me):
     """Get's all of the UV coordinates of a mesh with its indices for faces"""
@@ -926,6 +1149,23 @@ def get_mesh_uvs_with_indices(me):
                 new_uv_index += 1          
 
     return all_uvs, indices_to_uvs_for_loops, new_uv_index
+
+def create_vertex_groups(mesh):
+    arm = mesh.find_armature()
+    if not arm:
+        return
+    
+    for bone in arm.pose.bones:
+        if bone.name not in mesh.vertex_groups and bone.bone_group.name != "Null_Bone_Group":
+            #print("{} vertex group created".format(bone.name))
+            mesh.vertex_groups.new(name=bone.name)
+    
+    # ensure vertex groups are sorted
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = mesh
+    mesh.select_set(True)
+
+    bpy.ops.object.vertex_group_sort()
 
 def write_NFN0_header(file:File):
     """Writes the filename header"""

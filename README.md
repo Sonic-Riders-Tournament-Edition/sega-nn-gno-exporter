@@ -18,9 +18,9 @@ A Blender plugin that exports a Sega NN GNO model file designed for Sonic Riders
 
 - A new button under File > Export, for exporting a complete model file:
   - Format:
-    - Currently only has options to export Character Model files and Spline files. The "Splines" option is extremely experimental and unfinished, so don't use this. Use only the "Character Model" option for exporting character models.
-  - Rig:
-    - Contains all of the character's specific rigs, a rig for exporting only character boards, and also an option for no rig. 
+    - Currently only has options to export Character Model files and Spline files. The "Splines" option is extremely experimental and unfinished, so don't use this. Use only the "Character Model" option for exporting character models. You can also use this option to export general use models.
+  - Model Type:
+    - Contains multiple options that allow you to specify the type of your model. Has options for character models, board only models, general use models and an option for no rig to be included in the final model file. 
   - Include texture list:
     - For character models, this checkbox needs to be ticked. There are only very specific circumstances where this box isn't ticked.
   - Use bone data from other model:
@@ -32,9 +32,19 @@ A Blender plugin that exports a Sega NN GNO model file designed for Sonic Riders
 
 - A new section under Object Data Properties for meshes, GNO Mesh Properties:
   - Create Vertex Groups:
-    - This button is used to create all the necessary vertex groups for setting up a weight painted mesh. **Always** use this button to create the vertex groups for weight paints, because the hierarchy of these vertex groups need to be very specific and this button automates it.
+    - This button is used to create all usable vertex groups on the current mesh's armature. This is for if you just want to look through all of the bones you can use when assigning meshes/weight painting. You don't have to have all of these vertex groups present on the mesh for the export process to work.
   - Use custom bone visibility / Custom bone visibility:
-    - This setting is for advanced users. Usually used in tandem with the "No Rig" export option.
+    - This setting is for advanced users. Usually used in tandem with the "No Rig" model type export option.
+  - Rename Vertex Groups (Prefix):
+    - **NOTE:** Keep in mind that this only renames vertex groups and not the rig's bones!
+    - Prefix: Sets the prefix to be applied to the vertex group names. Usually, with Sega NN Tools, the imported rig's bones are named something like `snc07_Bone_0003`. This is useful for if you switch the rig you're using, and want a quick way to rename all of your vertex groups. If you were to set the prefix property to `nuc03` for example, it would rename the vertex groups to `nuc03_Bone_0003`.
+    - Rename Current Mesh Vertex Groups: Renames all the vertex groups on the mesh you have selected only.
+    - Rename All Vertex Groups: Renames all the vertex groups on all meshes in the scene.
+  - Rename Vertex Groups (Add/Remove Leading Zeroes):
+    - **NOTE:** Keep in mind that this only renames vertex groups and not the rig's bones!
+    - Sometimes, the imported rig's bones can be named something like `snc07_Bone_3` instead of `snc07_Bone_0003`. These sets of features deal with renaming that part of the vertex groups.
+    - Add Leading Zeroes: Adds zeroes in front of the bone number. It transforms it from `snc07_Bone_3` to `snc07_Bone_0003` for example.
+    - Remove Leading Zeroes: Removes zeroes in front of the bone number. It transforms it from `snc07_Bone_0003` to `snc07_Bone_3` for example.
     
 - A new section under Material Properties for meshes, GNO Material Properties:
   - Disable backface culling:
@@ -65,8 +75,8 @@ This entire guide will be using the aforementioned resources to put a model into
 Firstly, you should extract all of the game's files from the ISO into a folder for ease of access and modification. 
 To do this, right click on the game in your Dolphin library, go to Properties > Filesystem. Right click on Disc at the top and select Extract Entire Disc. This will allow you to choose a folder to extract all the files into which you can also boot up in Dolphin afterwards.
 
-The setup of the model files in TE 2.0 has been altered from base game. 
-The board models have been separated from the character models into the following naming convention `P?00`, the character models into the following naming conventions: `P?CO` for characters on board models, `P?CB` for characters on bike models, and `PB##` for all other board models, where the `#` is replaced with a gear's model number.
+The setup of the model files starting from TE 2.0 has been altered from base game. 
+The board models have been separated from the character models into the following naming convention: `P?00` for the character's default board model, the character models into the following naming conventions: `P?CO` for characters on board models, `P?CB` for characters on bike models, and `PB##` for all other board models, where the `#` is replaced with a gear's model number.
 Super form models and skate models are still all one model, and follow the base game naming convention.
 The `?` in these naming conventions are replaced with a letter corresponding to a character found in this table:
 
@@ -96,8 +106,8 @@ The `?` in these naming conventions are replaced with a letter corresponding to 
 | Chaos | 7 |
 | Tikal | 8 |
 
-In TE 2.0, there exists a dynamic character slot that opens up whenever it detects a model file for it in the ISO. It uses Shadow as a base, which means that if you wanna export a model into that slot, you should export via importing Shadow's character model into Blender, and using his rig. 
-Otherwise, if you are replacing another model, import that character model into Blender and use their rig instead. Make sure to choose the correct rig option when exporting.
+In TE 2.0, there exists a dynamic character slot that opens up whenever it detects a model file for it in the ISO. It uses Shadow as a base, which means that if you want to export a model into that slot, you should export via importing Shadow's character model into Blender, and using his rig (theoretically you can use anyone's rig except for Eggman's, and just edit it to your liking). 
+Otherwise, if you are replacing another model, import that character model into Blender and use their rig instead. Make sure to choose the correct model type option when exporting, which would be the Character model type (unless you are actually replacing Eggman, then use the one specifically for him).
 This dynamic character slot's default board model file is named `PX00` and the character model file should be named `PXCO`, which is not present in base TE 2.0, thus why the character slot is locked by default.
 
 For this example, we'll be exporting into that dynamic character slot, so we'll be importing Shadow's character model. The corresponding file for that would be `PDCO`. 
@@ -107,6 +117,8 @@ Upon extracting, we'll get two folders. `000_00000`, which contains the characte
 You don't have to worry about the `001_00009` folder, as that folder contains the files for the shadow below the character. Before importing the character model file into Blender, it should be named from `00000` to something that has the `.gno` extension at the end, like `Shadow.gno` for example.
 This makes it so that the model imports correctly into Blender.
 
+If you wish to export a board or bike model only, you don't need to import any sort of character model. More on that in the [Board models](#board-models) section.
+
 ### Setting up your own model
 
 Now that you have a pre-existing rig imported into Blender to work with, you can now start putting your own stuff in there. Here are a few key points to keep in mind for what exactly is exported into the model:
@@ -115,19 +127,33 @@ Now that you have a pre-existing rig imported into Blender to work with, you can
 You can manage all of the contents of the Blender file via the Outliner and setting the Display Mode to Blender File.
 
 Furthermore, here are some points/limitations you need to follow when setting up your model:
-- When weight painting meshes, make sure to firstly use the Create Vertex Groups button mentioned in the [Features](#Features) section. Then, you **have** to make sure that every vertex on the mesh only has a maximum of 2 vertex groups assigned to it. *The exporter doesn't currently support any more than that.* Also, make sure that every single vertex has a group assigned to it.
+- When weight painting meshes, you **have** to make sure that every vertex on the mesh only has a maximum of 2 vertex groups assigned to it. *The exporter doesn't currently support any more than that and only takes the first two vertex groups it sees if you go over this limit.* Furthermore, make sure that every single vertex has a group assigned to it.
 - A mesh must only have one material assigned to it.
-- For meshes that are supposed to be just parented to a single bone without any weight painting, the mesh must only contain *one* vertex group with the name of the bone it's supposed to be assigned to.
+- For meshes that are supposed to be just parented fully to a single bone without any weight painting, the mesh must only contain *one* vertex group with the name of the bone it's supposed to be assigned to.
 - **NOTE:** Currently, the latest version of the exporter has a bug that doesn't properly account for meshes that don't have custom split normal data set. This means that you **have** to make sure Auto Smooth is turned on for the mesh and that custom split normal data is properly set. Otherwise, the shading of the exported model will be broken.
 - All the meshes in the scene have to be parented to the Armature.
 - Don't make textures that are high resolution. An optimal texture resolution is 128x128. Generally, don't go too much over 256x256. Furthermore, texture resolutions must be a power of 2.
 - Don't make models that are too much over a tri count of about 6,000. This is to make sure it's optimized enough for the GameCube to run it.
+
+#### Board models
+
+For board or bike models, you do not need to import a rig or original game model of any sort. This means that half of the points mentioned in the [Setting up your own model](#setting-up-your-own-model) section do not apply. All you need is your board model in Blender, material correctly assigned to it and you're golden (obviously leave the vertex groups of the mesh empty or you will confuse the exporter). The exporter will take care of the rest to ensure it works in game.
+
+#### Rig editing
+
+You can make slight edits to the rig you import from one of the game's models to fit your character model more as you see fit. There are limitations to how you can edit a bone on the rig though. You are only allowed to change the position of the **entire** bone. This means you cannot edit the rotation of the bone, the scale of the bone, and the head or tail of the bone separately as that also changes the rotation of the bone technically. This is because if you rotate a bone in other ways than how it is on the original rig, the animations in the game are not going to be compatible. So, only moving the entire bone around to fit your character is all you can do to preserve compatibility.
+
+*If you notice your model being sort of broken (so not a complete vertex explosion) in the game, there's a high chance you edited the rig wrong or you assigned your meshes to incorrect bones.*
+
+**NOTE:** If you wish, you can use a script provided by Sewer56 and Arg that renames all of the bones on the rig, so you know which bone is what. You can find the script [here.](https://sewer56.dev/SonicRiders.Index/guides/custom-models.html#renaming-bones)
 
 #### Materials
 
 There are certain properties you are able to control about materials via the Shader Editor. 
 The exporter takes the color of a material from a RGB node, the opacity of a material from a Value node and the textures from Image Texture nodes of course.
 The nodes don't have to be necessarily connected to anything, they just have to be present in the material and the exporter will use them.
+
+You can also use Emissive and Reflective textures on your model. For this, you have to go into the properties of the texture node in your Shader Editor, where you will see a new section for GNO specific properties. You can set your texture type from there if necessary. By default, every texture node is a diffuse texture.
 
 #### Miscellaneous points
 
@@ -139,7 +165,7 @@ You can see this in action, as the imported model's armature is rotated 90 degre
 ### Exporting your model
 
 Once you have everything set and ready to go, you can now export the model via File > Export. 
-For this example, since we are exporting into the dynamic character slot, we'd just have to change the Rig type to `Shadow (Board)`, and make sure the Format is `Character Model` and `Include texture list` is ticked.
+For this example, since we are exporting into the dynamic character slot, we'd just have to change the Model Type to `Character`, and make sure the Format is `Character Model` and `Include texture list` is ticked.
 Upon exporting, the order of the texture files that are required by the model will be printed out to the system console of Blender.
 You can access the system console via Window > Toggle System Console.
 The order in the console is the exact same order you have to construct the texture archive in, otherwise the model file will reference the wrong textures on materials.

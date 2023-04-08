@@ -4,8 +4,8 @@ import numpy as np
 import itertools
 import os
 import struct
-from . import rigLUT
 from . import nn_model as nnModel
+from . import nn_general as nnGeneral
 import pathlib
 
 class Vector:
@@ -132,24 +132,29 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
 
         file.write(struct.pack('8x'))
 
-    def get_mesh_data(ob:bpy.types.Object, vertex_set, face_index, LUTkey, is_weighted = False):
+    def get_mesh_data(ob:bpy.types.Object, armature, vertex_set, face_index, rigtype, is_weighted = False):
         """Gets all the necessary data of a mesh"""
         
-        bone_index, bone_name = nnModel.get_mesh_bone(ob)
-        bone_group = nnModel.get_bone_group(ob, bone_name, is_weighted)
+        if rigtype == "board_only" or rigtype == "no_rig":
+            bone_group = 0
+        else:
+            bone_index, bone_name = nnModel.get_mesh_bone(ob)
+            bone_group = nnModel.get_bone_group(ob, bone_name, is_weighted)
         
         if ob.data.gnoSettings.use_custom_bone_visibility:
             bone_visibility = ob.data.gnoSettings.bone_visibility
 
-        elif LUTkey != "no_rig":
-            LUT = rigLUT.retrieve_bone_LUT(LUTkey)
-            if bone_group not in LUT:
-                print("Index {} bone not found in LUT.".format(bone_group))
-                bone_visibility = 0x46 # default to visible always
-            else:
-                bone_visibility = LUT[bone_group]
-        
+        elif rigtype == "character":
+            bone_visibility = nnModel.get_bone_visibility_character(armature, bone_group)
+
+        elif rigtype == "character_eggman" or rigtype == "general":
+            bone_visibility = nnModel.get_bone_visibility_general(armature, bone_group)
+
+        elif rigtype == "board_only":
+            bone_visibility = 2
+
         else:
+            # "no_rig"
             bone_visibility = 0
 
         firstmat = nnModel.get_mesh_material(ob)
@@ -206,33 +211,34 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     # instantiate main class
     gno = nnModel.GNO()
 
-    weighted_mesh_names, weighted_vertices_weights, weighted_vertices_bones = nnModel.get_weight_painted_meshes()
+    to_write_rig = False if keywords["rig_type"] == "no_rig" or keywords["rig_type"] == "board_only" else True
+
+    weighted_mesh_names = nnModel.get_weight_painted_meshes()
 
     # use a different rig if needed
-    if keywords["original_model_bool"]:
+    if keywords["original_model_bool"] and to_write_rig:
         path = "{}\\{}".format(os.path.dirname(keywords["filepath"]), keywords["original_model"])
         with nnModel.File(path, "rb") as extbonefile:
-            original_bone_data = read_original_model(extbonefile, keywords["raw_bone_data"])
-    else:
-        rigfile = keywords["rig_type"] + ".bin"
-        path = str(pathlib.Path(__file__).parent.absolute()) + "\\rigs\\{}".format(rigfile)
-        extbonefile = open(path, "rb")
-        original_bone_data = extbonefile.read()
-        extbonefile.close()
-    
+            bone_data = read_original_model(extbonefile, keywords["raw_bone_data"])
+            
+    armature = None
+
     # categorize all meshes
     for m in bpy.context.scene.objects:
         if not m.type == 'MESH':
             continue
+
+        if not armature:
+            armature = m.find_armature()
+
         nnModel.triangulateMesh(m.data)
         is_weight_painted = False
 
         if not m.data.uv_layers: # no UVs
             gno.vertex_set_2_meshes.append(m)
         else:
-            for mesh in weighted_mesh_names:
-                if m.name == mesh:
-                    is_weight_painted = True
+            if m.name in weighted_mesh_names:
+                is_weight_painted = True
             
             if is_weight_painted:
                 gno.vertex_set_3_meshes.append(m)
@@ -241,6 +247,12 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
 
     gno.vertex_set_1_uv_count = [0] * len(gno.vertex_set_1_meshes)
     gno.vertex_set_3_uv_count = [0] * len(gno.vertex_set_3_meshes)
+
+    success, weighted_vertices_weights, weighted_vertices_bones = nnModel.get_weight_paints(armature, weighted_mesh_names)
+
+    if not success:
+        nnGeneral.message_box("One or more weight painted meshes have vertices that don't have any vertex groups assigned!", "Error", "ERROR")
+        return None, None, None, None
     
 
     # NGTL (texture list header)
@@ -277,7 +289,11 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
 
     bone_offset = output_file.tell()
 
-    output_file.write(original_bone_data)
+    if not keywords["original_model_bool"] and to_write_rig:
+        bone_data = nnModel.serialize_rig(armature)
+
+    if to_write_rig:
+        output_file.write(bone_data)
 
     nnModel.write_materials(output_file, materials, gno)
 
@@ -439,7 +455,7 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     if gno.vertex_set_1_meshes:
         v1_meshes_start = output_file.tell()
         for me in gno.vertex_set_1_meshes:
-            mesh_data = get_mesh_data(me, vertex_index, faceindex, keywords['rig_type'])
+            mesh_data = get_mesh_data(me, armature, vertex_index, faceindex, keywords['rig_type'])
             for f in mesh_data.bounds.position:
                 output_file.write_float(f)
             output_file.write_float(mesh_data.bounds.scale)
@@ -454,7 +470,7 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     if gno.vertex_set_2_meshes:
         v2_meshes_start = output_file.tell()
         for me in gno.vertex_set_2_meshes:
-            mesh_data = get_mesh_data(me, vertex_index, faceindex, keywords['rig_type'])
+            mesh_data = get_mesh_data(me, armature, vertex_index, faceindex, keywords['rig_type'])
             for f in mesh_data.bounds.position:
                 output_file.write_float(f)
             output_file.write_float(mesh_data.bounds.scale)
@@ -469,7 +485,7 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     if gno.vertex_set_3_meshes:
         v3_meshes_start = output_file.tell()
         for me in gno.vertex_set_3_meshes:
-            mesh_data = get_mesh_data(me, vertex_index, faceindex, keywords['rig_type'], True)
+            mesh_data = get_mesh_data(me, armature, vertex_index, faceindex, keywords['rig_type'], True)
             for f in mesh_data.bounds.position:
                 output_file.write_float(f)
             output_file.write_float(mesh_data.bounds.scale)
@@ -518,19 +534,26 @@ def write_new_gno_file(output_file: nnModel.File, **keywords):
     output_file.write_int(len(face_info_struct_offsets))
     output_file.write_int_NOF0(face_info_offset, gno)
 
-    output_file.write_int(len(original_bone_data) // 0x80)
+    if not to_write_rig:
+        output_file.write_int(0)
+    elif not keywords['original_model_bool']:
+        output_file.write_int(len(armature.data.bones))
+    else:
+        output_file.write_int(len(bone_data) // 0x80)
 
-    output_file.write_int(0xC)
-    output_file.write_int_NOF0(bone_offset, gno)
+    if to_write_rig:
+        output_file.write_int(0xC)
+        output_file.write_int_NOF0(bone_offset, gno)
+    else:
+        output_file.write_int(0)
+        output_file.write_int(0)
 
-    if gno.vertex_set_1_meshes:
-        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_1_meshes[0])
-    elif gno.vertex_set_2_meshes:
-        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_2_meshes[0])
-    elif gno.vertex_set_3_meshes:
-        bone_group_amount = nnModel.get_bone_group_amount(gno.vertex_set_3_meshes[0])
+    if to_write_rig:
+        bone_group_amount = nnModel.get_bone_group_amount_armature(armature)
 
-    output_file.write_int(bone_group_amount) 
+        output_file.write_int(bone_group_amount)
+    else:
+        output_file.write_int(0)
 
     output_file.write_int(len(meshset_info))
     output_file.write_int_NOF0(mesh_set_info_offset, gno)

@@ -2,7 +2,7 @@ bl_info = {
     "name": "Sega GNO Model Exporter",
     "description": "Exports a Sega GNO model for the GameCube version of Sonic Riders.",
     "author": "Exortile",
-    "version": (1, 0),
+    "version": (1, 5),
     "blender": (3, 1, 0),
     "location": "File > Export",
     "warning": "",
@@ -16,7 +16,7 @@ from bpy.props import IntProperty, BoolProperty, StringProperty, EnumProperty
 from . import nn
 from . import nn_general as nnGeneral
 from . import nn_model as nnModel
-import struct
+import struct, os
 
 export_types = (
     ("model", "Character Model", "Exports a character GNO model"),
@@ -24,66 +24,11 @@ export_types = (
 )
 
 rig_types = (
-    ("no_rig", "No Rig", "Doesn't contain a rig. All bone visibility values will default to 0. Use this in tandem with external bone data (which means the exported model may require manual editing)"),
-    ("board_only", "Board", "Rig that only has a bone for the board"),
-
-    ("board_sonic", "Sonic (Board)", "Sonic on a board rig"),
-    ("bike_sonic", "Sonic (Bike)", "Sonic on a bike rig"),
-    ("skate_sonic", "Sonic (Skate)", "Sonic using skates rig"),
-
-    ("board_tails", "Tails (Board)", "Tails on a board rig"),
-    ("bike_tails", "Tails (Bike)", "Tails on a bike rig"),
-    ("skate_tails", "Tails (Skate)", "Tails using skates rig"),
-
-    ("board_knuckles", "Knuckles (Board)", "Knuckles on a board rig"),
-    ("bike_knuckles", "Knuckles (Bike)", "Knuckles on a bike rig"),
-    ("skate_knuckles", "Knuckles (Skate)", "Knuckles using skates rig"),
-
-    ("board_amy", "Amy (Board)", "Amy on a board rig"),
-    ("bike_amy", "Amy (Bike)", "Amy on a bike rig"),
-    ("skate_amy", "Amy (Skate)", "Amy using skates rig"),
-
-    ("board_jet", "Jet (Board)", "Jet on a board rig"),
-    ("bike_jet", "Jet (Bike)", "Jet on a bike rig"),
-    ("skate_jet", "Jet (Skate)", "Jet using skates rig"),
-
-    ("board_storm", "Storm (Board)", "Storm on a board rig"),
-    ("bike_storm", "Storm (Bike)", "Storm on a bike rig"),
-    ("skate_storm", "Storm (Skate)", "Storm using skates rig"),
-
-    ("board_wave", "Wave (Board)", "Wave on a board rig"),
-    ("bike_wave", "Wave (Bike)", "Wave on a bike rig"),
-    ("skate_wave", "Wave (Skate)", "Wave using skates rig"),
-
-    ("bike_eggman", "Eggman (Bike)", "Eggman on a bike rig"),
-
-    ("board_cream", "Cream (Board)", "Cream on a board rig"),
-    ("bike_cream", "Cream (Bike)", "Cream on a bike rig"),
-    ("skate_cream", "Cream (Skate)", "Cream using skates rig"),
-
-    ("board_rouge", "Rouge (Board)", "Rouge on a board rig"),
-    ("bike_rouge", "Rouge (Bike)", "Rouge on a bike rig"),
-    ("skate_rouge", "Rouge (Skate)", "Rouge using skates rig"), 
-
-    ("board_shadow", "Shadow (Board)", "Shadow on a board rig"),
-    ("bike_shadow", "Shadow (Bike)", "Shadow on a bike rig"),
-    ("skate_shadow", "Shadow (Skate)", "Shadow using skates rig"),
-
-    ("board_nights", "Nights (Board)", "Nights on a board rig"),
-    ("bike_nights", "Nights (Bike)", "Nights on a bike rig"),
-    ("skate_nights", "Nights (Skate)", "Nights using skates rig"),
-
-    ("board_aiai", "AiAi (Board)", "AiAi on a board rig"),
-    ("bike_aiai", "AiAi (Bike)", "AiAi on a bike rig"),
-    ("skate_aiai", "AiAi (Skate)", "AiAi using skates rig"),
-
-    ("board_ulala", "Ulala (Board)", "Ulala on a board rig"),
-
-    ("board_e10g", "E10G (Board)", "E10G on a board rig"),
-
-    ("board_e10r", "E10R (Board)", "E10R on a board rig"),
-
-    ("board_silver", "Silver (Board)", "Silver on a board rig"),
+    ("no_rig", "No Rig", "Exported model file doesn't contain a rig. All bone visibility values will default to 0. Use this in tandem with external bone data (which means the exported model may require manual editing)"),
+    ("board_only", "Board", "Exported model file doesn't contain a rig. All bone visibility values default to that of a extreme gear. No rig needs to be present in the Blender file to export this rig type"),
+    ("character", "Character", "Character rig export. Make sure you use this rig type on characters as it guarantees full compatibility in-game"),
+    ("character_eggman", "Character (Eggman Only)", "Character rig export, although this one's for Eggman only, as his rig is special"),
+    ("general", "General", "General rig export. Doesn't apply any fancy exceptions that it normally does on character exports. Use this on any model that isn't a character model"),
 )
 
 texture_types = (
@@ -97,6 +42,9 @@ def write_model(context, **keywords):
         NGOB_header_offset, offset_to_NOF0, NGOB_size, main_object_data_offset = \
             nn.write_new_gno_file(file, **keywords)
 
+    if NGOB_header_offset is None:
+        return False
+    
     data = struct.pack('<I', NGOB_size-0x8)
     data += struct.pack('>I', main_object_data_offset)
     with nnModel.File(keywords["filepath"], 'r+b') as file: # replace bytes
@@ -113,6 +61,8 @@ def write_model(context, **keywords):
         
         data = nnGeneral.generate_NGIF_header(offset_to_NOF0 + 0x20, NGOB_header_index)
         file.write(data + content)
+
+    return True
 
 def write_splines(context, **keywords):
     with nnModel.File(keywords["filepath"], 'wb') as file:
@@ -131,15 +81,79 @@ def write_splines(context, **keywords):
             for off in data:
                 file.write_int(off)
 
-def write_file(context, **keywords):
-    if keywords["format"] == "model":
-        write_model(context, **keywords)
-    elif keywords["format"] == "splines":
-        write_splines(context, **keywords)
-    
+    return True
 
-    return {'FINISHED'}
+def write_file(context, **keywords):
+    success = False
+    if keywords["format"] == "model":
+        success = write_model(context, **keywords)
+    elif keywords["format"] == "splines":
+        success = write_splines(context, **keywords)
     
+    if success:
+        filename = os.path.basename(keywords["filepath"])
+        nnGeneral.message_box("File {} exported successfully!".format(filename), "Success!")
+
+        return {'FINISHED'}
+    else:
+        return {'CANCELLED'}
+    
+def rename_mesh_groups(context, all_meshes: bool):
+    """
+    Renames all of the vertex groups of a mesh with the given prefix.
+    """
+    prefix = context.scene.gnoVGroupHelperSettings.prefix
+    mesh_list = [obj for obj in context.scene.objects if obj.type == "MESH"] if all_meshes \
+        else [context.active_object]
+
+    for obj in mesh_list:
+        for vgroup in obj.vertex_groups:
+            prefix_end = vgroup.name.index("_")
+            newname = prefix + vgroup.name[prefix_end:]
+            vgroup.name = newname
+
+def find_nth(haystack, needle, n):
+    start = haystack.find(needle)
+    while start >= 0 and n > 1:
+        start = haystack.find(needle, start+len(needle))
+        n -= 1
+    return start
+
+def rename_remove_leading_zeroes(context, all_meshes: bool):
+    """
+    Renames all of the vertex groups of a mesh in a way that removes leading zeroes from the bone number
+    """
+
+    mesh_list = [obj for obj in context.scene.objects if obj.type == "MESH"] if all_meshes \
+        else [context.active_object]
+
+    for mesh in mesh_list:
+        for vgroup in mesh.vertex_groups:
+            number_start = find_nth(vgroup.name, "_", 2)
+            if number_start == -1:
+                continue
+            number_start += 1
+            number = vgroup.name[number_start:].lstrip("0")
+            newname = vgroup.name[:number_start] + number
+            vgroup.name = newname
+
+def rename_add_leading_zeroes(context, all_meshes: bool):
+    """
+    Renames all of the vertex groups of a mesh in a way that adds leading zeroes to the bone number
+    """
+    
+    mesh_list = [obj for obj in context.scene.objects if obj.type == "MESH"] if all_meshes \
+        else [context.active_object]
+    
+    for mesh in mesh_list:
+        for vgroup in mesh.vertex_groups:
+            number_start = find_nth(vgroup.name, "_", 2)
+            if number_start == -1:
+                continue
+            number_start += 1
+            number = vgroup.name[number_start:].zfill(4)
+            newname = vgroup.name[:number_start] + number
+            vgroup.name = newname
 
 class ExportGNO(bpy.types.Operator, ExportHelper):
     """Exports a Sega GNO model for the GameCube version of Sonic Riders"""
@@ -184,8 +198,8 @@ class ExportGNO(bpy.types.Operator, ExportHelper):
     )
 
     rig_type: EnumProperty(
-        name = "Rig",
-        description = "Rig to use upon exporting",
+        name = "Model Type",
+        description = "Model type to use upon exporting",
         items = rig_types,
         default = rig_types[0][0],
     )
@@ -217,23 +231,71 @@ class GnoVertexGroups(bpy.types.Operator):
 
     def execute(self, context):
         mesh = context.active_object
-        arm = mesh.find_armature()
-        if not arm:
-            return {"CANCELLED"}
-        
-        for bone in arm.pose.bones:
-            if bone.name not in mesh.vertex_groups and bone.bone_group.name != "Null_Bone_Group":
-                print("{} vertex group created".format(bone.name))
-                mesh.vertex_groups.new(name=bone.name)
-        
-        # ensure vertex groups are sorted
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.view_layer.objects.active = mesh
-        mesh.select_set(True)
-
-        bpy.ops.object.vertex_group_sort()
+        nnModel.create_vertex_groups(mesh)
         
         return {"FINISHED"}
+    
+class GnoVertexGroupSettings(bpy.types.PropertyGroup):
+    prefix: StringProperty(
+        name = "Prefix",
+        description = "Prefix to be used to rename all of the vertex group names with",
+        default = "snc07"
+    )
+
+class RenameCurrentVertexGroups(bpy.types.Operator):
+    bl_idname = "rename_current_vertex_groups.gno"
+    bl_label = "Rename Current Mesh Vertex Groups (Prefix)"
+    bl_description = "Renames all vertex groups on this mesh with the given prefix (replaces the prefix before the underscore on the group names)"
+
+
+    def execute(self, context):
+        rename_mesh_groups(context, False)
+        return {'FINISHED'}
+
+class RenameAllVertexGroups(bpy.types.Operator):
+    bl_idname = "rename_all_vertex_groups.gno"
+    bl_label = "Rename All Vertex Groups (Prefix)"
+    bl_description = "Renames all vertex groups on all meshes in the scene with the given prefix (replaces the prefix before the underscore on the group names)"
+
+    def execute(self, context):
+        rename_mesh_groups(context, True)
+        return {'FINISHED'}
+    
+class RenameAllAddLeadingZeroes(bpy.types.Operator):
+    bl_idname = "rename_all_add_leading.gno"
+    bl_label = "Rename All Vertex Groups (Add Leading Zeroes)"
+    bl_description = "Renames all vertex groups on all meshes in the scene where the bone number at the end of the group name has leading zeroes added"
+
+    def execute(self, context):
+        rename_add_leading_zeroes(context, True)
+        return {'FINISHED'}
+    
+class RenameCurrentAddLeadingZeroes(bpy.types.Operator):
+    bl_idname = "rename_current_add_leading.gno"
+    bl_label = "Rename Current Mesh Vertex Groups (Add Leading Zeroes)"
+    bl_description = "Renames all vertex groups on the current mesh where the bone number at the end of the group name has leading zeroes added"
+
+    def execute(self, context):
+        rename_add_leading_zeroes(context, False)
+        return {'FINISHED'}
+    
+class RenameAllRemoveLeadingZeroes(bpy.types.Operator):
+    bl_idname = "rename_all_remove_leading.gno"
+    bl_label = "Rename All Vertex Groups (Remove Leading Zeroes)"
+    bl_description = "Renames all vertex groups on all meshes in the scene where the bone number at the end of the group name has leading zeroes removed"
+
+    def execute(self, context):
+        rename_remove_leading_zeroes(context, True)
+        return {'FINISHED'}
+    
+class RenameCurrentRemoveLeadingZeroes(bpy.types.Operator):
+    bl_idname = "rename_current_remove_leading.gno"
+    bl_label = "Rename Current Mesh Vertex Groups (Remove Leading Zeroes)"
+    bl_description = "Renames all vertex groups on the current mesh where the bone number at the end of the group name has leading zeroes removed"
+
+    def execute(self, context):
+        rename_remove_leading_zeroes(context, False)
+        return {'FINISHED'}
 
 class GnoMaterialSettings(bpy.types.PropertyGroup):
     disable_backface_culling: BoolProperty(
@@ -340,6 +402,7 @@ class MeshProperties(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         properties = context.active_object.data.gnoSettings
+        vgroup_properties = context.scene.gnoVGroupHelperSettings
 
         layout.operator("vertex_groups.gno")
 
@@ -354,6 +417,19 @@ class MeshProperties(bpy.types.Panel):
         row.prop(properties, "bone_visibility", text="")
         row.enabled = properties.use_custom_bone_visibility
 
+        box = layout.box()
+        box.alignment = "LEFT"
+        box.prop(vgroup_properties, "prefix")
+        box.operator("rename_current_vertex_groups.gno")
+        box.operator("rename_all_vertex_groups.gno")
+
+        box = layout.box()
+        box.alignment = "LEFT"
+        box.operator("rename_current_add_leading.gno")
+        box.operator("rename_all_add_leading.gno")
+        box.operator("rename_current_remove_leading.gno")
+        box.operator("rename_all_remove_leading.gno")
+
 def menu_export_func(self, context):
     self.layout.operator(ExportGNO.bl_idname, text="Sonic Riders GNO Model (.gno)")
 
@@ -366,6 +442,13 @@ classes = (
     GnoVertexGroups,
     MeshProperties,
     GnoMeshSettings,
+    GnoVertexGroupSettings,
+    RenameCurrentVertexGroups,
+    RenameAllVertexGroups,
+    RenameCurrentAddLeadingZeroes,
+    RenameAllAddLeadingZeroes,
+    RenameCurrentRemoveLeadingZeroes,
+    RenameAllRemoveLeadingZeroes
 )
 
 def register():
@@ -376,6 +459,7 @@ def register():
     bpy.types.Material.gnoSettings = bpy.props.PointerProperty(type=GnoMaterialSettings)
     bpy.types.ShaderNodeTexImage.gnoSettings = bpy.props.PointerProperty(type=GnoTextureSettings)
     bpy.types.Mesh.gnoSettings = bpy.props.PointerProperty(type=GnoMeshSettings)
+    bpy.types.Scene.gnoVGroupHelperSettings = bpy.props.PointerProperty(type=GnoVertexGroupSettings)
 
 def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_export_func)
